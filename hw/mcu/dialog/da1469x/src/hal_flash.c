@@ -133,6 +133,8 @@ da1469x_qspi_mode_manual(const struct hal_flash *dev)
 CODE_QSPI_INLINE static void
 da1469x_qspi_mode_auto(const struct hal_flash *dev)
 {
+    QSPIC->QSPIC_CTRLMODE_REG &= ~(QSPIC_QSPIC_CTRLMODE_REG_QSPIC_IO2_OEN_Msk |
+                                   QSPIC_QSPIC_CTRLMODE_REG_QSPIC_IO3_OEN_Msk);
     QSPIC->QSPIC_CTRLMODE_REG |= QSPIC_QSPIC_CTRLMODE_REG_QSPIC_AUTO_MD_Msk;
 }
 
@@ -468,5 +470,7 @@ da1469x_hff_init(const struct hal_flash *dev)
 #if defined (MYNEWT_VAL_MCU_QSPIC_BURSTCMDB_INIT_VAL)
     QSPIC->QSPIC_BURSTCMDB_REG = MYNEWT_VAL(MCU_QSPIC_BURSTCMDB_INIT_VAL);
 #endif
+
+    da1469x_qspi_mode_auto(dev);
     return 0;
 }
