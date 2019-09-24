@@ -42,12 +42,16 @@ static int da1469x_hff_erase_sector(const struct hal_flash *dev,
 static int da1469x_hff_sector_info(const struct hal_flash *dev, int idx,
                                    uint32_t *address, uint32_t *sz);
 static int da1469x_hff_init(const struct hal_flash *dev);
+static int da1469x_hff_erase(const struct hal_flash *dev,
+                             uint32_t address, uint32_t sz);
+
 
 static const struct hal_flash_funcs da1469x_flash_funcs = {
     .hff_read = da1469x_hff_read,
     .hff_write = da1469x_hff_write,
     .hff_erase_sector = da1469x_hff_erase_sector,
     .hff_sector_info = da1469x_hff_sector_info,
+    .hff_erase = da1469x_hff_erase,
     .hff_init = da1469x_hff_init
 };
 
@@ -159,6 +163,24 @@ da1469x_qspi_cmd_enable_write(const struct hal_flash *dev)
             status = da1469x_qspi_cmd_read_status(dev);
         } while (status & 0x01);
     } while (!(status & 0x02));
+}
+
+static sec_text_ram_core void
+da1469x_qspi_cmd_erase_block_32k(const struct hal_flash *dev, uint32_t address)
+{
+    QSPIC->QSPIC_CTRLBUS_REG = QSPIC_QSPIC_CTRLBUS_REG_QSPIC_EN_CS_Msk;
+    address = __builtin_bswap32(address) & 0xffffff00;
+    da1469x_qspi_write32(dev, address | 0x52);
+    QSPIC->QSPIC_CTRLBUS_REG = QSPIC_QSPIC_CTRLBUS_REG_QSPIC_DIS_CS_Msk;
+}
+
+static sec_text_ram_core void
+da1469x_qspi_cmd_erase_block_64k(const struct hal_flash *dev, uint32_t address)
+{
+    QSPIC->QSPIC_CTRLBUS_REG = QSPIC_QSPIC_CTRLBUS_REG_QSPIC_EN_CS_Msk;
+    address = __builtin_bswap32(address) & 0xffffff00;
+    da1469x_qspi_write32(dev, address | 0xd8);
+    QSPIC->QSPIC_CTRLBUS_REG = QSPIC_QSPIC_CTRLBUS_REG_QSPIC_DIS_CS_Msk;
 }
 
 static sec_text_ram_core void
@@ -282,6 +304,57 @@ da1469x_qspi_write(const struct hal_flash *dev, uint32_t address,
 }
 
 static sec_text_ram_core int
+da1469x_qspi_erase(const struct hal_flash *dev, uint32_t address, uint32_t sz)
+{
+    uint32_t primask;
+    uint32_t remainder;
+    uint32_t erase_size;
+
+    /* align the address to 4k alignment */
+    remainder = sz + (address & 0xfff);
+    address &= ~(0xfff);
+    remainder = (remainder + 4095) & (~(0xfff));
+
+    __HAL_DISABLE_INTERRUPTS(primask);
+
+    da1469x_qspi_mode_manual(dev);
+    da1469x_qspi_mode_single(dev);
+
+    da1469x_qspi_wait_busy(dev);
+
+    while (remainder) {
+        da1469x_qspi_cmd_enable_write(dev);
+        if (!(address & 0xffff) && remainder >= 65536) {
+            /* do 64k block erase */
+            da1469x_qspi_cmd_erase_block_64k(dev, address);
+            erase_size = 65536;
+        } else if (!(address & 0x7fff) && remainder >= 32768) {
+            /* do 32k block erase */
+            da1469x_qspi_cmd_erase_block_32k(dev, address);
+            erase_size = 32768;
+        } else {
+            /* do sector erase */
+            da1469x_qspi_cmd_erase_sector(dev, address);
+            erase_size = 4096;
+        }
+        da1469x_qspi_wait_busy(dev);
+
+        remainder -= erase_size;
+        address += erase_size;
+    }
+
+    da1469x_qspi_mode_quad(dev);
+    da1469x_qspi_mode_auto(dev);
+
+    /* XXX Should check if region was cached before flushing cache */
+    CACHE->CACHE_CTRL1_REG |= CACHE_CACHE_CTRL1_REG_CACHE_FLUSH_Msk;
+
+    __HAL_ENABLE_INTERRUPTS(primask);
+
+    return 0;
+}
+
+static sec_text_ram_core int
 da1469x_qspi_erase_sector(const struct hal_flash *dev, uint32_t sector_address)
 {
     uint32_t primask;
@@ -364,6 +437,13 @@ static int
 da1469x_hff_erase_sector(const struct hal_flash *dev, uint32_t sector_address)
 {
     return da1469x_qspi_erase_sector(dev, sector_address);
+}
+
+static int
+da1469x_hff_erase(const struct hal_flash *dev, uint32_t sector_address,
+                  uint32_t sz)
+{
+    return da1469x_qspi_erase(dev, sector_address, sz);
 }
 
 static int
