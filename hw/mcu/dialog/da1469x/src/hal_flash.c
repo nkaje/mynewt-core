@@ -133,8 +133,8 @@ da1469x_qspi_mode_manual(const struct hal_flash *dev)
 CODE_QSPI_INLINE static void
 da1469x_qspi_mode_auto(const struct hal_flash *dev)
 {
-    QSPIC->QSPIC_CTRLMODE_REG &= ~(QSPIC_QSPIC_CTRLMODE_REG_QSPIC_IO2_OEN_Msk |
-                                   QSPIC_QSPIC_CTRLMODE_REG_QSPIC_IO3_OEN_Msk);
+//    QSPIC->QSPIC_CTRLMODE_REG &= ~(QSPIC_QSPIC_CTRLMODE_REG_QSPIC_IO2_OEN_Msk |
+//                                   QSPIC_QSPIC_CTRLMODE_REG_QSPIC_IO3_OEN_Msk);
     QSPIC->QSPIC_CTRLMODE_REG |= QSPIC_QSPIC_CTRLMODE_REG_QSPIC_AUTO_MD_Msk;
 }
 
@@ -461,16 +461,60 @@ da1469x_hff_sector_info(const struct hal_flash *dev, int idx,
     return 0;
 }
 
+#if MYNEWT_VAL(QSPI_FLASH_GIGAFLASH)
+static void
+da1469x_configure_gigadevice(const struct hal_flash *dev)
+{
+    /* Set QE bit in status register */
+    da1469x_qspi_cmd_enable_write(dev);
+    QSPIC->QSPIC_CTRLBUS_REG = QSPIC_QSPIC_CTRLBUS_REG_QSPIC_EN_CS_Msk;
+    da1469x_qspi_write8(dev, 0x01);
+    da1469x_qspi_write8(dev, 0x00);
+    da1469x_qspi_write8(dev, 0x02);
+    QSPIC->QSPIC_CTRLBUS_REG = QSPIC_QSPIC_CTRLBUS_REG_QSPIC_DIS_CS_Msk;
+    da1469x_qspi_wait_busy(dev);
+
+    /* set BURST A/B  and control mode */
+    QSPIC->QSPIC_BURSTCMDA_REG = 0xa82000eb;
+    QSPIC->QSPIC_BURSTCMDB_REG = 0x66;
+}
+
+#else
+
+static void
+da1469x_configure_macronix(const struct hal_flash *dev)
+{
+    da1469x_qspi_cmd_enable_write(dev);
+    QSPIC->QSPIC_CTRLBUS_REG = QSPIC_QSPIC_CTRLBUS_REG_QSPIC_EN_CS_Msk;
+    da1469x_qspi_write8(dev, 0x01);
+    da1469x_qspi_write8(dev, 0x40);
+    QSPIC->QSPIC_CTRLBUS_REG = QSPIC_QSPIC_CTRLBUS_REG_QSPIC_DIS_CS_Msk;
+
+    /* set BURST A/B  and control mode */
+    QSPIC->QSPIC_BURSTCMDA_REG = 0xa8a500eb;
+    QSPIC->QSPIC_BURSTCMDB_REG = 0x66;
+}
+#endif
+
 static int
 da1469x_hff_init(const struct hal_flash *dev)
 {
-#if defined (MYNEWT_VAL_MCU_QSPIC_BURSTCMDA_INIT_VAL)
-    QSPIC->QSPIC_BURSTCMDA_REG = MYNEWT_VAL(MCU_QSPIC_BURSTCMDA_INIT_VAL);
-#endif
-#if defined (MYNEWT_VAL_MCU_QSPIC_BURSTCMDB_INIT_VAL)
-    QSPIC->QSPIC_BURSTCMDB_REG = MYNEWT_VAL(MCU_QSPIC_BURSTCMDB_INIT_VAL);
+    uint32_t primask;
+
+    QSPIC->QSPIC_CTRLMODE_REG = 0xfb3;
+
+    __HAL_DISABLE_INTERRUPTS(primask);
+    da1469x_qspi_mode_manual(dev);
+    da1469x_qspi_mode_single(dev);
+
+#if MYNEWT_VAL(QSPI_FLASH_GIGAFLASH)
+    da1469x_configure_gigadevice(dev);
+#else
+    da1469x_configure_macronix(dev);
 #endif
 
+    da1469x_qspi_mode_quad(dev);
     da1469x_qspi_mode_auto(dev);
+    __HAL_ENABLE_INTERRUPTS(primask);
     return 0;
 }
