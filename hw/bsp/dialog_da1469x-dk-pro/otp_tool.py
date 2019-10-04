@@ -23,8 +23,14 @@ import click
 import struct
 import binascii
 from typing import NamedTuple
-from enum import Enum
 import os
+from cryptography.hazmat.primitives import serialization
+
+# Add in path to mcuboot.  This is required to pull in keys module from imgtool
+import sys
+sys.path.append(os.path.join(os.getcwd(), "repos", "mcuboot", "scripts",
+                "imgtool"))
+import keys as keys
 
 
 class Cmd(object):
@@ -35,7 +41,8 @@ class Cmd(object):
     OTP_READ_CONFIG = 4
     OTP_APPEND_VALUE = 5
     OTP_INIT = 6
-    TEST_ALIVE = 7
+    FLASH_ERASE = 7
+    TEST_ALIVE = 8
 
 
 class cmd_no_payload(NamedTuple):
@@ -73,7 +80,8 @@ class cmd_response(NamedTuple):
 class cmd_flash_op(NamedTuple):
     som: int
     cmd: int
-    address: int
+    index: int
+    offset: int
     length: int
 
 
@@ -81,14 +89,14 @@ def crc16(data: bytearray, offset, length):
     if data is None or offset < 0:
         return
 
-    if offset > len(data) - 1 and offset + length > len(data):
+    if offset > len(data) - 1 or offset + length > len(data):
         return 0
 
     crc = 0
     for i in range(length):
         crc ^= data[offset + i] << 8
 
-        for j in range(8):
+        for _ in range(8):
             if (crc & 0x8000) > 0:
                 crc = (crc << 1) ^ 0x1021
             else:
@@ -103,6 +111,13 @@ def validate_slot_index(ctx, param, value):
         raise click.BadParameter("Slot value has to be between 0 and 7")
 
 
+def read_exact(device, length):
+    data = device.read(length)
+    if len(data) != length:
+        raise SystemExit("Failed to receive expected response, exiting")
+    return data
+
+
 @click.option('-i', '--index', required=True, type=int, help='key slot index',
               callback=validate_slot_index)
 @click.option('-u', '--uart', required=True, help='uart port')
@@ -113,7 +128,7 @@ def otp_read_key(index, segment, uart):
     seg_map = {'signature': 0, 'data': 1, 'qspi': 2}
 
     try:
-        ser = serial.Serial(port=uart, baudrate=115200, timeout=1,
+        ser = serial.Serial(port=uart, baudrate=1000000, timeout=1,
                             bytesize=8, stopbits=serial.STOPBITS_ONE)
     except serial.SerialException:
         raise SystemExit("Failed to open serial port")
@@ -126,9 +141,7 @@ def otp_read_key(index, segment, uart):
     except serial.SerialException:
         raise SystemExit("Failed to write to %s" % uart)
 
-    data = ser.read(16)
-    if len(data) != 16:
-        raise SystemExit("Failed to receive response, exiting")
+    data = read_exact(ser, 16)
 
     response = cmd_response._make(struct.unpack_from('IIII', data))
     if response.status == 0:
@@ -137,6 +150,13 @@ def otp_read_key(index, segment, uart):
     else:
         raise SystemExit("Error reading key with status %s" %
                          hex(response.status))
+
+
+def isBase64(data):
+    try:
+        return base64.b64encode(base64.b64decode(data)) == data
+    except Exception:
+        return False
 
 
 @click.argument('infile')
@@ -151,7 +171,18 @@ def otp_write_key(infile, index, segment, uart):
     key = bytearray()
     try:
         with open(infile, "rb") as f:
-            buf = f.read(32)
+            if segment == 'signature':
+                # read key from ED25519 pem file
+                sig = keys.load(infile)
+                buf = sig._get_public().public_bytes(
+                            encoding=serialization.Encoding.Raw,
+                            format=serialization.PublicFormat.Raw)
+            else:
+                # read key from base64 encoded AES key file
+                buf = f.read()
+                if isBase64(buf):
+                    if len(buf) != 32:
+                        raise SystemExit("AES key file has incorrect length")
             key = struct.unpack('IIIIIIII', buf)
     except IOError:
         raise SystemExit("Failed to read key from file")
@@ -159,7 +190,7 @@ def otp_write_key(infile, index, segment, uart):
     seg_map = {'signature': 0, 'data': 1, 'qspi': 2}
 
     try:
-        ser = serial.Serial(port=uart, baudrate=115200, timeout=1,
+        ser = serial.Serial(port=uart, baudrate=1000000, timeout=1,
                             bytesize=8, stopbits=serial.STOPBITS_ONE)
     except serial.SerialException:
         raise SystemExit("Failed to open serial port")
@@ -174,9 +205,7 @@ def otp_write_key(infile, index, segment, uart):
 
     ser.write(msg)
 
-    data = ser.read(16)
-    if len(data) != 16:
-        raise SystemExit("Failed to receive response, exiting")
+    data = read_exact(ser, 16)
 
     response = cmd_response._make(struct.unpack_from('IIII', data))
     if response.status == 0:
@@ -200,7 +229,7 @@ def generate_payload(data):
 @click.command(help='Read data from OTP configuration script area')
 def otp_read_config(uart, outfile):
     try:
-        ser = serial.Serial(port=uart, baudrate=115200, timeout=1,
+        ser = serial.Serial(port=uart, baudrate=1000000, timeout=1,
                             bytesize=8, stopbits=serial.STOPBITS_ONE)
     except serial.SerialException:
         raise SystemExit("Failed to open serial port")
@@ -214,9 +243,7 @@ def otp_read_config(uart, outfile):
     except serial.SerialException:
         raise SystemExit("Failed to write to %s" % uart)
 
-    data = ser.read(16)
-    if len(data) != 16:
-        raise SystemExit("Failed to receive response, exiting")
+    data = read_exact(ser, 16)
 
     response = cmd_response._make(struct.unpack_from('IIII', data))
     if response.status == 0:
@@ -233,15 +260,14 @@ def otp_read_config(uart, outfile):
 
 
 @click.argument('outfile')
-@click.option('-a', '--address', type=str, required=True,
-              help='flash address, hexadecimal')
+@click.option('-a', '--offset', type=str, required=True,
+              help='flash address offset from base, hexadecimal')
 @click.option('-l', '--length', type=int, required=True, help='length to read')
-@click.option('-b', '--block-size', type=int, default=1024, help='block size')
 @click.option('-u', '--uart', required=True, help='uart port')
 @click.command(help='Read from flash')
-def flash_read(uart, length, outfile, address, block_size):
+def flash_read(uart, length, outfile, offset):
     try:
-        ser = serial.Serial(port=uart, baudrate=115200, timeout=1,
+        ser = serial.Serial(port=uart, baudrate=1000000, timeout=1,
                             bytesize=8, stopbits=serial.STOPBITS_ONE)
     except serial.SerialException:
         raise SystemExit("Failed to open serial port")
@@ -252,34 +278,47 @@ def flash_read(uart, length, outfile, address, block_size):
         raise SystemExit("Failed to open output file")
 
     bytes_left = length
-    offset = int(address, 16)
+    offset = int(offset, 16)
+    retry = 3
     while bytes_left > 0:
-        if bytes_left > block_size:
-            trans_length = block_size
+        if bytes_left > 4096:
+            trans_length = 4096
         else:
             trans_length = bytes_left
 
-        cmd = cmd_flash_op(0xaa55aa55, Cmd.FLASH_READ, offset, trans_length)
-        data = struct.pack('IIII', *cmd)
+        cmd = cmd_flash_op(0xaa55aa55, Cmd.FLASH_READ, 0, offset, trans_length)
+        data = struct.pack('IIIII', *cmd)
 
         try:
             ser.write(data)
         except serial.SerialException:
             raise SystemExit("Failed to write cmd to %s" % uart)
 
-        data = ser.read(16)
-        if len(data) != 16:
-            raise SystemExit("Failed to receive response, exiting")
+        data = read_exact(ser, 16)
 
         response = cmd_response._make(struct.unpack_from('IIII', data))
         if response.status == 0:
             data = ser.read(response.length)
             if len(data) != response.length:
                 raise SystemExit("Failed to receive response, exiting")
-            f.write(data)
+
+            # data has a crc on the end
+            crc_computed = crc16(data[:-2], 0, response.length - 2)
+            crc = struct.unpack('!H', data[response.length -2 :])[0]
+            if crc == crc_computed:
+                retry = 0
+            else:
+                if retry == 0:
+                    raise SystemExit("Data corruption retries exceeded, exiting")
+
+                print("Data crc failed, retrying\n");
+                retry -= 1
+                continue
+
+            f.write(data[:-2])
 
         else:
-            SystemExit("Error in read response, exiting")
+            raise SystemExit("Error in read response, exiting")
             break
 
         bytes_left -= trans_length
@@ -288,14 +327,45 @@ def flash_read(uart, length, outfile, address, block_size):
     print("Successfully read flash, wrote contents to " + outfile)
 
 
-@click.argument('infile')
-@click.option('-a', '--address', type=str, required=True, help='flash address')
-@click.option('-b', '--block-size', type=int, default=1024, help='block size')
+@click.option('-a', '--offset', type=str, required=True,
+              help='flash address offset, in hex')
+@click.option('-l', '--length', type=int, required=True, help='size to erase')
 @click.option('-u', '--uart', required=True, help='uart port')
 @click.command(help='Write to flash')
-def flash_write(uart, infile, address, block_size):
+def flash_erase(uart, offset, length):
     try:
-        ser = serial.Serial(port=uart, baudrate=115200, timeout=1,
+        ser = serial.Serial(port=uart, baudrate=1000000, timeout=60,
+                            bytesize=8, stopbits=serial.STOPBITS_ONE)
+    except serial.SerialException:
+        raise SystemExit("Failed to open serial port")
+
+    # length is unused, so set to 0
+    offset = int(offset, 16)
+    cmd = cmd_flash_op(0xaa55aa55, Cmd.FLASH_ERASE, 0, offset, length)
+    msg = struct.pack('IIIII', *cmd)
+
+    try:
+        ser.write(msg)
+    except serial.SerialException:
+        raise SystemExit("Failed to write to %s" % uart)
+
+    data = read_exact(ser, 16)
+
+    response = cmd_response._make(struct.unpack_from('IIII', data))
+    if response.status != 0:
+            raise SystemExit("Failed to erase flash, exiting")
+
+    print("Successfully erased flash")
+
+@click.argument('infile')
+@click.option('-a', '--offset', type=str, required=True,
+              help='flash address offset, in hex')
+@click.option('-b', '--block-size', type=int, default=4096, help='block size')
+@click.option('-u', '--uart', required=True, help='uart port')
+@click.command(help='Write to flash')
+def flash_write(uart, infile, offset, block_size):
+    try:
+        ser = serial.Serial(port=uart, baudrate=1000000, timeout=1,
                             bytesize=8, stopbits=serial.STOPBITS_ONE)
     except serial.SerialException:
         raise SystemExit("Failed to open serial port")
@@ -308,16 +378,16 @@ def flash_write(uart, infile, address, block_size):
     length = os.path.getsize(infile)
 
     bytes_left = length
-    offset = int(address, 16)
+    offset = int(offset, 16)
     while bytes_left > 0:
         if bytes_left > block_size:
             trans_length = block_size
         else:
             trans_length = bytes_left
 
-        cmd = cmd_flash_op(0xaa55aa55, Cmd.FLASH_WRITE, offset,
+        cmd = cmd_flash_op(0xaa55aa55, Cmd.FLASH_WRITE, 0, offset,
                            trans_length + 2)
-        data = struct.pack('IIII', *cmd)
+        data = struct.pack('IIIII', *cmd)
 
         f_bytes = f.read(trans_length)
         data += f_bytes
@@ -328,20 +398,12 @@ def flash_write(uart, infile, address, block_size):
         except serial.SerialException:
             raise SystemExit("Failed to write cmd to %s" % uart)
 
-        data = ser.read(16)
-        if len(data) != 16:
-            raise SystemExit("Failed to receive response, exiting")
+        data = read_exact(ser, 16)
 
         response = cmd_response._make(struct.unpack_from('IIII', data))
-        if response.status == 0:
-            data = ser.read(response.length)
-            if len(data) != response.length:
-                raise SystemExit("Failed to receive response, exiting")
-            f.write(data)
-
-        else:
-            SystemExit("Error in read response, exiting")
-            break
+        if response.status != 0:
+            raise SystemExit("Flash write failed w/ %s, exiting" %
+                             hex(response.status))
 
         bytes_left -= trans_length
         offset += trans_length
@@ -351,7 +413,7 @@ def flash_write(uart, infile, address, block_size):
 
 def send_otp_config_payload(uart, data):
     try:
-        ser = serial.Serial(port=uart, baudrate=115200, timeout=1,
+        ser = serial.Serial(port=uart, baudrate=1000000, timeout=1,
                             bytesize=8, stopbits=serial.STOPBITS_ONE)
     except serial.SerialException:
         raise SystemExit("Failed to open serial port")
@@ -371,9 +433,7 @@ def send_otp_config_payload(uart, data):
     except serial.SerialException:
         raise SystemExit("Failed to write to %s" % uart)
 
-    data = ser.read(16)
-    if len(data) != 16:
-        raise SystemExit("Failed to receive response, exiting")
+    data = read_exact(ser, 16)
 
     response = cmd_response._make(struct.unpack_from('IIII', data))
     if response.status == 0:
@@ -483,7 +543,7 @@ def close_config_script(uart):
 @click.command(help='Initialize blank OTP Config script')
 def init_config_script(uart):
     try:
-        ser = serial.Serial(port=uart, baudrate=115200, timeout=1,
+        ser = serial.Serial(port=uart, baudrate=1000000, timeout=1,
                             bytesize=8, stopbits=serial.STOPBITS_ONE)
     except serial.SerialException:
         raise SystemExit("Failed to open serial port")
@@ -497,25 +557,21 @@ def init_config_script(uart):
     except serial.SerialException:
         raise SystemExit("Failed to write to %s" % uart)
 
-    data = ser.read(16)
-    if len(data) != 16:
-        raise SystemExit("Failed to receive response, exiting")
+    data = read_exact(ser, 16)
 
     response = cmd_response._make(struct.unpack_from('IIII', data))
     if response.status != 0:
         raise SystemExit('Failed to initialize OTP with status %d'
                          % response.status)
-    else:
-        SystemExit("Successfully initialized blank OTP")
+    print("Successfully initialized blank OTP")
 
-    print(response)
 
 
 @click.option('-u', '--uart', required=True, help='uart port')
 @click.command(help='Test if the board is alive by sending and receving data')
 def test_alive_target(uart):
     try:
-        ser = serial.Serial(port=uart, baudrate=115200, timeout=1,
+        ser = serial.Serial(port=uart, baudrate=1000000, timeout=1,
                             bytesize=8, stopbits=serial.STOPBITS_ONE)
     except serial.SerialException:
         raise SystemExit("Failed to open serial port")
@@ -555,6 +611,7 @@ cli.add_command(otp_read_key)
 cli.add_command(otp_write_key)
 cli.add_command(flash_read)
 cli.add_command(flash_write)
+cli.add_command(flash_erase)
 cli.add_command(otp_append_register)
 cli.add_command(otp_append_trim)
 cli.add_command(disable_development_mode)
