@@ -31,9 +31,18 @@
 extern "C" {
 #endif
 
+
+/* XXX: not tested
+ - WADAD register addresses for op1 and op2
+ - WADVA using registers.
+ - RDCGR reigster for addr1 and addr2
+*/
+
 TEST_CASE_DECL(da1469x_snc_test_case_1);
 TEST_CASE_DECL(da1469x_snc_test_case_2);
 TEST_CASE_DECL(da1469x_snc_test_case_3);
+TEST_CASE_DECL(dummy_test);
+TEST_CASE_DECL(da1469x_enc_flash_test);
 TEST_SUITE_DECL(da1469x_test_suite);
 
 #ifdef __cplusplus

@@ -23,15 +23,18 @@
 #include <stddef.h>
 #include "os/mynewt.h"
 #include "syscfg/syscfg.h"
-#include "testutil/testutil.h"
 #include "da1469x_test/da1469x_test.h"
+#include "flash_map/flash_map.h"
+#include "mcu/da1469x_hal.h"
 
 TEST_SUITE(da1469x_test_suite)
 {
 #if MYNEWT_VAL(TESTBENCH_DA1469X_SNC == 1)
-    da1469x_snc_test_case_1();
+    /* da1469x_snc_test_case_1();
     da1469x_snc_test_case_2();
-    da1469x_snc_test_case_3();
+    da1469x_snc_test_case_3(); */
+    dummy_test();
+    da1469x_enc_flash_test();
 #endif
 }
 

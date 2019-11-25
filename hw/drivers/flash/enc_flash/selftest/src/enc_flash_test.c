@@ -34,23 +34,23 @@
 struct flash_area enc_test_flash_areas[4] = {
     [0] = {
         .fa_id = ENC_TEST_FLASH_ID,
-        .fa_off = 0x00000000,
-        .fa_size = 16 * 1024
+        .fa_off = 0x0000D800,
+        .fa_size = 1 * 1024
     },
     [1] = {
         .fa_id = ENC_TEST_FLASH_ID,
-        .fa_off = 0x00004000,
-        .fa_size = 16 * 1024
+        .fa_off = 0x0000D900,
+        .fa_size = 1 * 1024
     },
     [2] = {
         .fa_id = ENC_TEST_FLASH_ID,
-        .fa_off = 0x00008000,
-        .fa_size = 16 * 1024
+        .fa_off = 0x000DA00,
+        .fa_size = 1 * 1024
     },
     [3] = {
         .fa_id = ENC_TEST_FLASH_ID,
-        .fa_off = 0x0000c000,
-        .fa_size = 16 * 1024
+        .fa_off = 0x0000DB00,
+        .fa_size = 1 * 1024
     }
 };
 

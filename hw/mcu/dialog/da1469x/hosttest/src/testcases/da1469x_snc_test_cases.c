@@ -18,12 +18,7 @@
  */
 #include "syscfg/syscfg.h"
 #include "da1469x_test/da1469x_test.h"
-
-/* XXX: not tested
- - WADAD register addresses for op1 and op2
- - WADVA using registers.
- - RDCGR reigster for addr1 and addr2
-*/
+#include <hal/hal_flash.h>
 
 #if MYNEWT_VAL(TESTBENCH_DA1469X_SNC == 1)
 #include <modlog/modlog.h>
@@ -31,6 +26,39 @@
 
 #define SNC_TEST_XOR_MASK   (0x003C00F0)
 
+/*
+ * Native BSP has encrypted flash driver registered with device ID 1.
+ */
+#define ENC_TEST_FLASH_ID	1
+
+struct flash_area da_flash_areas[4] = {
+    [0] = {
+        .fa_id = ENC_TEST_FLASH_ID,
+        .fa_off = 0x0000D800,
+        .fa_size = 1 * 1024
+    },
+    [1] = {
+        .fa_id = ENC_TEST_FLASH_ID,
+        .fa_off = 0x0000D900,
+        .fa_size = 1 * 1024
+    },
+    [2] = {
+        .fa_id = ENC_TEST_FLASH_ID,
+        .fa_off = 0x000DA00,
+        .fa_size = 1 * 1024
+    },
+    [3] = {
+        .fa_id = ENC_TEST_FLASH_ID,
+        .fa_off = 0x0000DB00,
+        .fa_size = 1 * 1024
+    }
+};
+
+#define ENC_TEST_FLASH_AREA_CNT                                         \
+    (sizeof(da_flash_areas) / sizeof(da_flash_areas[0]))
+
+
+//extern struct flash_area enc_test_flash_areas[4];
 /*
  * This is an ugly hack, but to use the 64-bit macros it requires hard-coded
  * addresses. These are defined at the bottom of the stack so highly unlikely
@@ -408,6 +436,11 @@ TEST_CASE(da1469x_snc_test_case_2)
     TEST_LOG_INFO("snc test 2 success");
 }
 
+TEST_CASE(dummy_test)
+{
+    TEST_LOG_INFO("dummy success");
+}
+
 /*
  * This test case enables only the PDC interrupt. Should not get a SNC
  * interrupt to the M33 in this case
@@ -464,4 +497,57 @@ TEST_CASE(da1469x_snc_test_case_3)
 
     TEST_LOG_INFO("snc test 3 success");
 }
+
+TEST_CASE(da1469x_enc_flash_test)
+{
+    int rc;
+    struct flash_area *fa;
+    int i;
+    int off;
+    int blk_sz;
+    bool b;
+    char writedata[128];
+    char readdata[128];
+
+    fa = da_flash_areas;
+
+    for (i = 0; i < ENC_TEST_FLASH_AREA_CNT; i++) {
+        rc = flash_area_erase(fa, 0, fa->fa_size);
+        TEST_ASSERT(rc == 0);
+        rc = flash_area_is_empty(fa, &b);
+        TEST_ASSERT(rc == 0);
+        TEST_ASSERT(b == true);
+        for (off = 0; off < fa->fa_size; off += blk_sz) {
+            blk_sz = fa->fa_size - off;
+            if (blk_sz > sizeof(readdata)) {
+                blk_sz = sizeof(readdata);
+            }
+            rc = flash_area_read_is_empty(fa, off, readdata, blk_sz);
+            TEST_ASSERT(rc == 1);
+        }
+        fa++;
+    }
+
+    for (i = 0; i < sizeof(writedata); i++) {
+        writedata[i] = i;
+    }
+
+    fa = da_flash_areas;
+    rc = flash_area_write(fa, 0, writedata, sizeof(writedata));
+    TEST_ASSERT(rc == 0);
+
+    rc = flash_area_read(fa, 0, readdata, sizeof(readdata));
+    TEST_ASSERT(rc == 0);
+
+    TEST_ASSERT(!memcmp(writedata, readdata, sizeof(writedata)));
+
+    rc = flash_area_is_empty(fa, &b);
+    TEST_ASSERT(rc == 0);
+    TEST_ASSERT(b == false);
+    memset(readdata, 0, sizeof(readdata));
+    rc = flash_area_read_is_empty(fa, 0, readdata, sizeof(readdata));
+    TEST_ASSERT(rc == 0);
+    TEST_ASSERT(!memcmp(writedata, readdata, sizeof(writedata)));
+}
+
 #endif
