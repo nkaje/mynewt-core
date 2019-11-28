@@ -34,3 +34,8 @@ TEST_SUITE(test_json_suite)
 
     free(bigbuf);
 }
+
+TEST_SUITE(dummy_test)
+{
+    TEST_LOG_INFO("dummy success");
+}

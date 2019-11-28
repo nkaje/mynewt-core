@@ -87,8 +87,10 @@ testtask_handler(void *arg)
 {
     os_gettimeofday(&tv, &tz);
 
+#ifdef LED_BLINK_PIN
     g_led_pin = LED_BLINK_PIN;
     hal_gpio_init_out(g_led_pin, 1);
+#endif
 
     while (1) {
         /*
@@ -102,8 +104,10 @@ testtask_handler(void *arg)
         /* Wait one second */
         os_time_delay(OS_TICKS_PER_SEC / blinky_blink);
 
+#ifdef LED_BLINK_PIN
         /* Toggle the LED */
         hal_gpio_toggle(g_led_pin);
+#endif
     }
 }
 
@@ -115,6 +119,7 @@ static const oc_handler_t omgr_oc_handler = {
     .init = omgr_app_init,
 };
 
+extern void da1469x_hosttest_init(void);
 /*
  * main()
  * Keep this app simple, just run the tests and then report success or failure.
@@ -143,6 +148,8 @@ main(int argc, char **argv)
      */
     TEST_SUITE_REGISTER(cbmem_test_suite);
     TEST_SUITE_REGISTER(test_json_suite);
+    TEST_SUITE_REGISTER(dummy_test);
+    //da1469x_hosttest_init();
 
     testbench_test_init(); /* initialize globals include blink duty cycle */
 

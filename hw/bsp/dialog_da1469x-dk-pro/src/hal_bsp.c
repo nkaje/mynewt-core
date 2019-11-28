@@ -27,6 +27,8 @@
 #include "mcu/da1469x_hal.h"
 #include "mcu/da1469x_periph.h"
 #include "bsp/bsp.h"
+#include "enc_flash/enc_flash.h"
+#include <log/log.h>
 
 static const struct hal_bsp_mem_dump dump_cfg[] = {
     [0] = {
@@ -41,14 +43,30 @@ static const struct hal_bsp_mem_dump dump_cfg[] = {
  */
 static char hw_id[] = "DA1469X_HW_ID";
 
+const struct enc_flash_dev da1469x_eflash_dev = {
+    .efd_hal.hf_itf = &enc_flash_funcs,
+    .efd_hwdev = &da1469x_flash_dev,
+};
+
 const struct hal_flash *
 hal_bsp_flash_dev(uint8_t id)
 {
-    if (id != 0) {
-        return NULL;
+    switch(id)
+    {
+        case 0:
+            //DFLT_LOG_INFO("case 0, da1469x_flash_dev");
+            //TEST_LOG_INFO("case 0, da1469x_flash_dev");
+            return &da1469x_flash_dev;
+            break;
+        case 5:
+            //DFLT_LOG_INFO("case 1, da1469x_eflash_dev");
+            //TEST_LOG_INFO("case 1, da1469x_eflash_dev");
+            //return &da1469x_flash_dev;
+            return &da1469x_eflash_dev.efd_hal;
+            break;
+        default:
+            return NULL;
     }
-
-    return &da1469x_flash_dev;
 }
 
 const struct hal_bsp_mem_dump *

@@ -29,27 +29,27 @@
 /*
  * Native BSP has encrypted flash driver registered with device ID 1.
  */
-#define ENC_TEST_FLASH_ID	1
+#define ENC_TEST_FLASH_ID	5
 
 struct flash_area da_flash_areas[4] = {
     [0] = {
         .fa_id = ENC_TEST_FLASH_ID,
-        .fa_off = 0x0000D800,
+        .fa_off = 0x000D8000,
         .fa_size = 1 * 1024
     },
     [1] = {
         .fa_id = ENC_TEST_FLASH_ID,
-        .fa_off = 0x0000D900,
+        .fa_off = 0x000D9000,
         .fa_size = 1 * 1024
     },
     [2] = {
         .fa_id = ENC_TEST_FLASH_ID,
-        .fa_off = 0x000DA00,
+        .fa_off = 0x000DA000,
         .fa_size = 1 * 1024
     },
     [3] = {
         .fa_id = ENC_TEST_FLASH_ID,
-        .fa_off = 0x0000DB00,
+        .fa_off = 0x000DB000,
         .fa_size = 1 * 1024
     }
 };
@@ -436,11 +436,6 @@ TEST_CASE(da1469x_snc_test_case_2)
     TEST_LOG_INFO("snc test 2 success");
 }
 
-TEST_CASE(dummy_test)
-{
-    TEST_LOG_INFO("dummy success");
-}
-
 /*
  * This test case enables only the PDC interrupt. Should not get a SNC
  * interrupt to the M33 in this case
@@ -509,15 +504,18 @@ TEST_CASE(da1469x_enc_flash_test)
     char writedata[128];
     char readdata[128];
 
-    fa = da_flash_areas;
+    fa = &da_flash_areas[0];
 
     for (i = 0; i < ENC_TEST_FLASH_AREA_CNT; i++) {
+        //TEST_LOG_INFO("i %d", i);
         rc = flash_area_erase(fa, 0, fa->fa_size);
         TEST_ASSERT(rc == 0);
         rc = flash_area_is_empty(fa, &b);
         TEST_ASSERT(rc == 0);
         TEST_ASSERT(b == true);
         for (off = 0; off < fa->fa_size; off += blk_sz) {
+            //TEST_LOG_INFO("area %d out of %d: verifying address %x off %x",
+            //    i, ENC_TEST_FLASH_AREA_CNT, off, fa->fa_off);
             blk_sz = fa->fa_size - off;
             if (blk_sz > sizeof(readdata)) {
                 blk_sz = sizeof(readdata);
@@ -548,6 +546,8 @@ TEST_CASE(da1469x_enc_flash_test)
     rc = flash_area_read_is_empty(fa, 0, readdata, sizeof(readdata));
     TEST_ASSERT(rc == 0);
     TEST_ASSERT(!memcmp(writedata, readdata, sizeof(writedata)));
+
+    TEST_LOG_INFO("encflash success");
 }
 
 #endif

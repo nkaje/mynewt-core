@@ -29,13 +29,10 @@
 
 TEST_SUITE(da1469x_test_suite)
 {
-#if MYNEWT_VAL(TESTBENCH_DA1469X_SNC == 1)
     /* da1469x_snc_test_case_1();
     da1469x_snc_test_case_2();
     da1469x_snc_test_case_3(); */
-    dummy_test();
     da1469x_enc_flash_test();
-#endif
 }
 
 void

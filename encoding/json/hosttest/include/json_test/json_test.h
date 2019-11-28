@@ -24,5 +24,5 @@
 #include "testutil/testutil.h"
 
 TEST_SUITE_DECL(test_json_suite);
-
+TEST_SUITE_DECL(dummy_test);
 #endif

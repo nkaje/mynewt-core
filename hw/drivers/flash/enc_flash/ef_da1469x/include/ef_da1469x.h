@@ -17,13 +17,28 @@
  * under the License.
  */
 
-#ifndef H_JSON_TEST_
-#define H_JSON_TEST_
+#ifndef __EF_NRF5X_H__
+#define __EF_NRF5X_H__
 
-#include "os/mynewt.h"
-#include "testutil/testutil.h"
+/*
+ * Encrypting flash driver for da1469x
+ */
+#include <enc_flash/enc_flash.h>
 
-TEST_SUITE_DECL(test_json_suite);
-TEST_SUITE_DECL(dummy_test);
-
+#ifdef __cplusplus
+extern "C" {
 #endif
+
+/*
+ * da1469x specific version of the flash device.
+ */
+struct eflash_nrf5x_dev {
+    struct enc_flash_dev end_dev;
+    struct eflash_nrf5x_ecb end_ecb;
+};
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* __ENC_FLASH_NRF5X_H__ */
