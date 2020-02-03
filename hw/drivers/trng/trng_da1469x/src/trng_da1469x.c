@@ -21,6 +21,7 @@
 #include <trng/trng.h>
 #include <mcu/mcu.h>
 #include "mcu/da1469x_clock.h"
+#include "mbedtls/config_mynewt.h"
 
 #define DA1469X_TRNG_FIFO_SIZE  (32 * sizeof(uint32_t))
 #define DA1469X_TRNG_FIFO_ADDR  (0x30050000UL)
@@ -105,3 +106,20 @@ da1469x_trng_init(struct os_dev *dev, void *arg)
 
     return 0;
 }
+
+#ifdef MBEDTLS_ENTROPY_HARDWARE_ALT
+int
+mbedtls_hardware_poll( void *data, unsigned char *output, size_t len, size_t *olen ) {
+    struct trng_dev *trng;
+
+    trng = (struct trng_dev *)os_dev_lookup("trng");
+    da1469x_trng_init((struct os_dev *)trng, NULL);
+    int ret = da1469x_trng_read(trng, output, len);
+    if ( ret == len )
+        *olen = len;
+    else
+        olen = NULL;
+
+    return 0;
+}
+#endif

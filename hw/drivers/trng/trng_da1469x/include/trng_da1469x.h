@@ -27,6 +27,7 @@ extern "C" {
 #endif
 
 int da1469x_trng_init(struct os_dev *dev, void *arg);
+int mbedtls_hardware_poll( void *data, unsigned char *output, size_t len, size_t *olen );
 
 #ifdef __cplusplus
 }

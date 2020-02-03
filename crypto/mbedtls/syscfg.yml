@@ -125,6 +125,9 @@ syscfg.defs:
   MBEDTLS_ENTROPY_C:
     value: 1
 
+  MBEDTLS_ENTROPY_HARDWARE_ALT:
+    value: 0
+
   # PKCS#1 v1.5 not supported by MCUBoot
   MBEDTLS_PKCS1_V15:
     value: 1
