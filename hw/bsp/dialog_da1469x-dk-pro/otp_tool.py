@@ -32,6 +32,71 @@ import sys
 sys.path.append(os.path.join(os.getcwd(), "repos", "mcuboot", "scripts",
                 "imgtool"))
 import keys as keys
+# Add in path to otp_programmer's app source and import errors
+sys.path.append(os.path.join(os.getcwd(), "repos", "apache-mynewt-core", "hw", "bsp", "dialog_da1469x-dk-pro",
+"otp_header_generation"))
+import otp_tool_err
+
+class OTPBaseException(Exception, BaseException):
+    """OTP Base Exception"""
+    pass
+
+class OTPInitError(OTPBaseException):
+    """OTP Initialization Error"""
+    pass
+
+class OTPKeyNotEmpty(OTPBaseException):
+    """OTP Area/Key Not empty"""
+    pass
+
+class OTPInvalidAlignment(OTPBaseException):
+    """OTP Invalid Alignment"""
+    pass
+
+class OTPInvalidAddress(OTPBaseException):
+    """OTP Invalid Addrss"""
+    pass
+
+class OTPVerificationFailed(OTPBaseException):
+    """OTP Key Verification Failed"""
+    pass
+
+class OTPSerialException(OTPBaseException):
+    """OTP Read Key Error"""
+    pass
+
+class OTPFlashInvalidDevice(OTPBaseException):
+    """OTP Flash Invalid Device"""
+    pass
+
+class OTPFlashAccessError(OTPBaseException):
+    """OTP Flash Access Error"""
+    pass
+
+class OTPFlashEIO(OTPBaseException):
+    """OTP Flash IO Error"""
+    pass
+
+def process_response(status, msg=None, terminate=False):
+    switcher = {
+        otp_tool_err.ERR_KEY_NOT_EMPTY:         OTPKeyNotEmpty,
+
+        # Errors returned OTP memory driver
+        otp_tool_err.ERR_OTP_INV_ALIGNMENT:     OTPInvalidAlignment,
+        otp_tool_err.ERR_OTP_INV_ADDRESS:       OTPInvalidAddress,
+        otp_tool_err.ERR_OTP_VERF_FAILED:       OTPVerificationFailed,
+
+        otp_tool_err.ERR_INIT_UART      :       OTPSerialException,
+
+        # Flash Errors
+        otp_tool_err.ERR_FLASH_INV      :       OTPFlashInvalidDevice,
+        otp_tool_err.ERR_FLASH_EACCES  :        OTPFlashAccessError,
+        otp_tool_err.ERR_FLASH_EIO      :       OTPFlashEIO,
+    }
+
+    ex = switcher.get(status)
+    if (ex != None):
+        raise ex(msg + " %d" % status)
 
 
 class Cmd(object):
@@ -149,7 +214,7 @@ def otp_read_key(index, segment, uart):
         key = ser.read(32)
         print("key:" + key.hex())
     else:
-        raise SystemExit("Error reading key with status %s" %
+        raise OTPReadKeyError("Error reading key with status %s" %
                          hex(response.status))
     return key
 
@@ -214,11 +279,12 @@ def otp_write_key(infile, index, segment, uart):
     data = read_exact(ser, 16)
 
     response = cmd_response._make(struct.unpack_from('IIII', data))
-    if response.status == 0:
+
+    try:
+        process_response(response.status, "Write Key to Segment %s Slot %d" % (segment, index))
         print("Key successfully updated")
-    else:
-        raise SystemExit('Error writing key with status %s ' %
-                         hex(response.status))
+    except OTPBaseException as e:
+        print("Error :" + str(e))
 
 
 def generate_payload(data):
@@ -252,6 +318,13 @@ def otp_read_config(uart, outfile):
     data = read_exact(ser, 16)
 
     response = cmd_response._make(struct.unpack_from('IIII', data))
+
+    try:
+        process_response(response.status, "OTP Read config")
+    except OTPBaseException as e:
+        print("Error :" + str(e))
+        raise SystemExit("OTP Read Config Error")
+
     if response.status == 0:
         data = ser.read(response.length)
         if len(data) != response.length:
@@ -303,29 +376,31 @@ def flash_read(uart, length, outfile, offset):
         data = read_exact(ser, 16)
 
         response = cmd_response._make(struct.unpack_from('IIII', data))
-        if response.status == 0:
-            data = ser.read(response.length)
-            if len(data) != response.length:
-                raise SystemExit("Failed to receive response, exiting")
 
-            # data has a crc on the end
-            crc_computed = crc16(data[:-2], 0, response.length - 2)
-            crc = struct.unpack('!H', data[response.length -2 :])[0]
-            if crc == crc_computed:
-                retry = 0
-            else:
-                if retry == 0:
-                    raise SystemExit("Data corruption retries exceeded, exiting")
-
-                print("Data crc failed, retrying\n");
-                retry -= 1
-                continue
-
-            f.write(data[:-2])
-
-        else:
+        try:
+            process_response(response.status)
+        except OTPBaseException as e:
+            print("Error :" + str(e))
             raise SystemExit("Error in read response, exiting")
-            break
+
+        data = ser.read(response.length)
+        if len(data) != response.length:
+            raise SystemExit("Failed to receive response, exiting")
+
+        # data has a crc on the end
+        crc_computed = crc16(data[:-2], 0, response.length - 2)
+        crc = struct.unpack('!H', data[response.length -2 :])[0]
+        if crc == crc_computed:
+            retry = 0
+        else:
+            if retry == 0:
+                raise SystemExit("Data corruption retries exceeded, exiting")
+
+            print("Data crc failed, retrying\n");
+            retry -= 1
+            continue
+
+        f.write(data[:-2])
 
         bytes_left -= trans_length
         offset += trans_length
@@ -358,8 +433,12 @@ def flash_erase(uart, offset, length):
     data = read_exact(ser, 16)
 
     response = cmd_response._make(struct.unpack_from('IIII', data))
-    if response.status != 0:
-            raise SystemExit("Failed to erase flash, exiting")
+
+    try:
+        process_response(response.status, "erase flash")
+    except OTPBaseException as e:
+        print("Error :" + str(e))
+        SystemExit("Failed to erase flash, exiting")
 
     print("Successfully erased flash")
 
@@ -407,7 +486,11 @@ def flash_write(uart, infile, offset, block_size):
         data = read_exact(ser, 16)
 
         response = cmd_response._make(struct.unpack_from('IIII', data))
-        if response.status != 0:
+
+        try:
+            process_response(response.status)
+        except OTPBaseException as e:
+            print("Error: " + str(e))
             raise SystemExit("Flash write failed w/ %s, exiting" %
                              hex(response.status))
 
@@ -442,6 +525,12 @@ def send_otp_config_payload(uart, data):
     data = read_exact(ser, 16)
 
     response = cmd_response._make(struct.unpack_from('IIII', data))
+
+    try:
+        process_response(response.status, "OTP Config Payload")
+    except OTPBaseException as e:
+        print("Error :" + str(e))
+
     if response.status == 0:
         data = ser.read(response.length)
         if len(data) != response.length:
@@ -566,9 +655,12 @@ def init_config_script(uart):
     data = read_exact(ser, 16)
 
     response = cmd_response._make(struct.unpack_from('IIII', data))
-    if response.status != 0:
-        raise SystemExit('Failed to initialize OTP with status %d'
-                         % response.status)
+
+    try:
+        process_response(response.status, "initialize OTP")
+    except OTPBaseException as e:
+        print("Error :" + str(e))
+
     print("Successfully initialized blank OTP")
 
 
