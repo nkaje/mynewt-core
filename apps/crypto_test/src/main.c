@@ -171,10 +171,14 @@ run_test_vectors(struct crypto_dev *crypto, struct test_vectors *test_mode)
     int i;
     uint32_t sz;
     uint32_t asksz;
+    uint8_t keybuf_ram[AES_BLOCK_LEN] = {0};
+    uint8_t inbuf_ram[AES_BLOCK_LEN] = {0};
+
 
     algo = test_mode->algo;
     mode = test_mode->mode;
-    key = (uint8_t *)test_mode->key;
+    memcpy(keybuf_ram, test_mode->key, AES_BLOCK_LEN);
+    key = keybuf_ram;
     keylen = test_mode->keylen;
     if (test_mode->iv) {
         memcpy(iv, (uint8_t *)test_mode->iv, AES_BLOCK_LEN);
@@ -188,7 +192,8 @@ run_test_vectors(struct crypto_dev *crypto, struct test_vectors *test_mode)
     for (i = 0; i < test_mode->len; i++) {
         printf("\tvector %d: ", i);
         vector = &vectors[i];
-        inbuf = (uint8_t *)vector->plain;
+        memcpy(inbuf_ram, vector->plain, AES_BLOCK_LEN);
+        inbuf = inbuf_ram;
 
         asksz = AES_BLOCK_LEN;
         if (mode == CRYPTO_MODE_CTR) {
@@ -212,7 +217,8 @@ run_test_vectors(struct crypto_dev *crypto, struct test_vectors *test_mode)
     for (i = 0; i < test_mode->len; i++) {
         printf("\tvector %d: ", i);
         vector = &vectors[i];
-        inbuf = (uint8_t *)vector->cipher;
+        memcpy(inbuf_ram, vector->cipher, AES_BLOCK_LEN);
+        inbuf = inbuf_ram;
 
         asksz = AES_BLOCK_LEN;
         if (mode == CRYPTO_MODE_CTR) {
