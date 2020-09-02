@@ -25,7 +25,9 @@
 #include "hal/hal_flash_int.h"
 #include "mcu/mcu.h"
 #include <stdbool.h>
+#include "crypto/crypto.h"
 
+extern struct time_tracker g_tt;
 #define CODE_QSPI_INLINE    __attribute__((always_inline)) inline
 
 union da1469x_qspi_data_reg {
@@ -346,12 +348,16 @@ da1469x_hff_write(const struct hal_flash *dev, uint32_t address,
 {
     uint8_t buf[ MYNEWT_VAL(QSPI_FLASH_READ_BUFFER_SIZE) ];
     uint32_t chunk_len;
+    int ret;
 
+    g_tt.hff_write = true;
     /* We can write directly if 'src' is outside flash memory, otherwise we
      * need to read data to RAM first and then write to flash.
      */
     if (da1469x_hff_in_flash_addr_space(src) == false) {
-        return da1469x_qspi_write(dev, address, src, num_bytes);
+        ret = da1469x_qspi_write(dev, address, src, num_bytes);
+        g_tt.hff_write = false;
+        return ret;
     }
 
     while (num_bytes) {
@@ -373,6 +379,7 @@ da1469x_hff_write(const struct hal_flash *dev, uint32_t address,
         num_bytes -= chunk_len;
     }
 
+    g_tt.hff_write = false;
     return 0;
 }
 

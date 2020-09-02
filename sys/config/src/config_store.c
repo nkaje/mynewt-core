@@ -24,6 +24,7 @@
 #include "config/config.h"
 #include "config/config_store.h"
 #include "config_priv.h"
+#include "console/console.h"
 
 struct conf_dup_check_arg {
     const char *name;
@@ -212,6 +213,7 @@ conf_dup_check_cb(char *name, char *val, void *cb_arg)
 /*
  * Append a single value to persisted config. Don't store duplicate value.
  */
+int g_save_one_ctr;
 int
 conf_save_one(const char *name, char *value)
 {
@@ -239,7 +241,10 @@ conf_save_one(const char *name, char *value)
         goto out;
     }
     cs = conf_save_dst;
+    g_save_one_ctr = 1;
     rc = cs->cs_itf->csi_save(cs, name, value);
+    console_printf("g_save_one_ctr %d\n", g_save_one_ctr);
+    g_save_one_ctr = 0;
 out:
     conf_unlock();
     return rc;

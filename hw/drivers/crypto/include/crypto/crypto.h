@@ -99,6 +99,23 @@ struct crypto_iovec {
     size_t iov_len;
 };
 
+struct time_tracker {
+    uint32_t start;
+    uint32_t ef_sem_pend;
+    uint32_t co_done;
+    uint32_t end;
+
+    uint32_t crypto_op_start;
+    uint32_t crypto_mutex_pend;
+    uint32_t crypto_dma_tx_begin;
+    uint32_t crypto_dma_tx_end;
+    uint32_t crypto_wtf;
+    uint32_t crypto_wtf_done;
+    uint32_t crypto_mutex_rel;
+
+    bool hff_write;
+};
+
 /**
  * Encrypt a buffer using custom parameters
  *

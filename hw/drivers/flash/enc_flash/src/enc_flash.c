@@ -48,6 +48,8 @@ const struct hal_flash_funcs enc_flash_funcs = {
     .hff_init         = enc_flash_init,
 };
 
+extern int g_log_walk_ctr;
+extern int g_save_one_ctr;
 /*
  * Read first all the data in to provided memory area, then apply the
  * cipher -> text conversion.
@@ -64,6 +66,10 @@ enc_flash_read(const struct hal_flash *h_dev, uint32_t addr, void *buf,
 
     h_dev = dev->efd_hwdev;
 
+    if (g_log_walk_ctr > 0)
+        g_log_walk_ctr++;
+    if(g_save_one_ctr > 0)
+        g_save_one_ctr++;
     rc = h_dev->hf_itf->hff_read(h_dev, addr, buf, len);
     if (rc) {
         return rc;

@@ -26,6 +26,7 @@
 #include <mcu/da1469x_otp.h>
 #include <mcu/da1469x_dma.h>
 
+extern struct time_tracker g_tt;
 static struct os_mutex gmtx;
 
 #define VALID_AES_KEYLEN(x) (((x) == 128) || ((x) == 192) || ((x) == 256))
@@ -113,7 +114,9 @@ da1469x_crypto_op(struct crypto_dev *crypto, uint8_t op, uint16_t algo,
         memcpy(iv_save, &inbuf[len-AES_BLOCK_LEN], AES_BLOCK_LEN);
     }
 
+    g_tt.crypto_op_start = os_cputime_get32();
     os_mutex_pend(&gmtx, OS_TIMEOUT_NEVER);
+    g_tt.crypto_mutex_pend = os_cputime_get32();
     da1469x_clock_amba_enable(CRG_TOP_CLK_AMBA_REG_AES_CLK_ENABLE_Msk);
 
     /* enable AES / disable HASH */
@@ -185,7 +188,9 @@ da1469x_crypto_op(struct crypto_dev *crypto, uint8_t op, uint16_t algo,
     }
 
     if (OTP_ADDRESS_RANGE_USER_DATA_KEYS(key)) {
+        g_tt.crypto_dma_tx_begin = os_cputime_get32();
         do_dma_key_tx(key, keylen);
+        g_tt.crypto_dma_tx_end = os_cputime_get32();
     } else {
         keyreg = (uint32_t *)&AES_HASH->CRYPTO_KEYS_START;
         keyp32 = (uint32_t *)key;
@@ -226,6 +231,7 @@ da1469x_crypto_op(struct crypto_dev *crypto, uint8_t op, uint16_t algo,
     /* start encryption/decryption */
     AES_HASH->CRYPTO_START_REG |= AES_HASH_CRYPTO_START_REG_CRYPTO_START_Msk;
 
+    g_tt.crypto_wtf = os_cputime_get32();
     /*
      * Wait to finish.
      *
@@ -234,8 +240,10 @@ da1469x_crypto_op(struct crypto_dev *crypto, uint8_t op, uint16_t algo,
     while (!(AES_HASH->CRYPTO_STATUS_REG &
              AES_HASH_CRYPTO_STATUS_REG_CRYPTO_INACTIVE_Msk));
 
+    g_tt.crypto_wtf_done = os_cputime_get32();
     da1469x_clock_amba_disable(CRG_TOP_CLK_AMBA_REG_AES_CLK_ENABLE_Msk);
     os_mutex_release(&gmtx);
+    g_tt.crypto_mutex_rel = os_cputime_get32();
 
     /*
      * Update crypto framework internals

@@ -37,6 +37,8 @@
 #include "shell/shell.h"
 #endif
 
+#include "console/console.h"
+
 struct log_module_entry {
     int16_t id;
     const char *name;
@@ -893,6 +895,8 @@ log_walk_body_fn(struct log *log, struct log_offset *log_offset, const void *dpt
     return 0;
 }
 
+int g_log_walk_ctr;
+
 int
 log_walk_body(struct log *log, log_walk_body_func_t walk_body_func,
               struct log_offset *log_offset)
@@ -904,7 +908,10 @@ log_walk_body(struct log *log, log_walk_body_func_t walk_body_func,
     int rc;
 
     log_offset->lo_arg = &lwba;
+    g_log_walk_ctr = 1;
     rc = log->l_log->log_walk(log, log_walk_body_fn, log_offset);
+    console_printf("g_log_walk_ctr %d\n", g_log_walk_ctr);
+    g_log_walk_ctr = 0;
     log_offset->lo_arg = lwba.arg;
 
     return rc;
