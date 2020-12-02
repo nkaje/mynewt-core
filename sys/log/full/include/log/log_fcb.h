@@ -90,6 +90,13 @@ struct fcb_log {
 };
 #endif
 
+struct log_walk_gte_arg {
+    struct log *log;
+    struct log_offset *log_offset;
+    /* output */
+    struct fcb_entry *fcb_entry;
+};
+
 #if MYNEWT_VAL(LOG_FCB_BOOKMARKS)
 
 /**
