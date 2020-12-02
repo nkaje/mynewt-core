@@ -68,6 +68,7 @@ struct fcb {
 /**
  * Error codes.
  */
+#define FCB_FOUND          1
 #define FCB_OK             0
 #define FCB_ERR_ARGS      -1
 #define FCB_ERR_FLASH     -2

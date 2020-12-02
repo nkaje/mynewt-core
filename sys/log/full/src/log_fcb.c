@@ -32,6 +32,60 @@
 
 static int log_fcb_rtr_erase(struct log *log);
 
+static int
+fcb_walk_gte(struct fcb_entry *loc, void *arg)
+{
+    struct log_entry_hdr hdr;
+    struct log_walk_gte_arg *lwga = (struct log_walk_gte_arg *)arg;
+    struct log *log = lwga->log;
+    struct log_offset *log_offset = lwga->log_offset;
+    int rc;
+
+    rc = log_read_hdr(log, loc, &hdr);
+    if (rc) {
+        return rc;
+    }
+    if (hdr.ue_index >= log_offset->lo_index) {
+        /* Found, terminate walk */
+        memcpy(lwga->fcb_entry, loc, sizeof(struct fcb_entry));
+        return FCB_FOUND;
+    } else {
+        return 0;
+    }
+}
+
+/**
+ * Helper function to find start point for walking, given an offset.
+ * for a non-zero offset, instead of walking from the beginning,
+ * walk from the last applicable area, check first entry and compare
+ * against the given offset. Repeat this until an offset less than the
+ * given offset is found, start walking from there.
+ */
+static int
+fcb_walk_back_find_start(struct fcb *fcb, struct log *log, struct log_offset *log_offset, struct fcb_entry *fcb_entry)
+{
+    struct flash_area *fap;
+    struct log_entry_hdr hdr;
+    int rc;
+
+    if (fcb->f_oldest == fcb->f_active.fe_area) {
+        fap = fcb->f_oldest;
+    } else {
+        fap = (fcb->f_active.fe_area - sizeof(struct flash_area));
+    }
+
+    for (hdr.ue_index = log_offset->lo_index; hdr.ue_index >= log_offset->lo_index; fap--) {
+        fcb_entry->fe_area = fap;
+        fcb_entry->fe_elem_off = 0;
+        fcb_getnext(fcb, fcb_entry);
+        rc = log_read_hdr(log, fcb_entry, &hdr);
+        if (rc != 0) {
+            return rc;
+        }
+    }
+    return 0;
+}
+
 /**
  * Finds the first log entry whose "offset" is >= the one specified.  A log
  * offset consists of two parts:
@@ -63,6 +117,8 @@ log_fcb_find_gte(struct log *log, struct log_offset *log_offset,
     struct fcb_log *fcb_log;
     struct fcb *fcb;
     int rc;
+    struct log_walk_gte_arg lwga;
+    struct flash_area *fap;
 
     fcb_log = log->l_arg;
     fcb = &fcb_log->fl_fcb;
@@ -102,19 +158,34 @@ log_fcb_find_gte(struct log *log, struct log_offset *log_offset,
     }
 #endif
 
-    /* Keep advancing until we find an entry with a great enough index. */
-    do {
+    /**
+     * For non-zero indices, we walk back from the latest fe_area
+     * Compare the ue_index with lo_index for the first entry of each of these areas.
+     * If we find one that is less than the lo_index, we start walking from there.
+     * This covers a case if we are looking for a an entry GTE to any random non-zero
+     * value.
+     */
+    if (log_offset->lo_index != 0) {
+        rc = fcb_walk_back_find_start(fcb, log, log_offset, out_entry);
+    } else {
         rc = log_read_hdr(log, out_entry, &hdr);
-        if (rc != 0) {
-            return rc;
-        }
+    }
 
-        if (hdr.ue_index >= log_offset->lo_index) {
-            return 0;
-        }
-    } while (fcb_getnext(fcb, out_entry) == 0);
+    if (rc != 0) {
+        return rc;
+    }
 
-    return SYS_ENOENT;
+    fap = out_entry->fe_area;
+    lwga.log = log;
+    lwga.log_offset = log_offset;
+    lwga.fcb_entry = out_entry;
+    rc = fcb_walk(fcb, fap, fcb_walk_gte, (void *)&lwga);
+
+    if (rc != FCB_FOUND) {
+        return SYS_ENOENT;
+    } else {
+        return 0;
+    }
 }
 
 static int
